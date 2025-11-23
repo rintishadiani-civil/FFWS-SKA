@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>FFWS Ska 24 — Dashboard Realtime (FIXED)</title>
+
+<!-- Lib -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+  :root{
+    --bg:#eef2ff; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
+    --brand:#4f46e5; --ok:#16a34a; --warn:#f59e0b; --alert:#ef4444;
+    --siaga4:#22c55e; --siaga3:#eab308; --siaga2:#f97316; --siaga1:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Segoe UI,system-ui,-apple-system,sans-serif;background:linear-gradient(135deg,#6d78ff,#7f5aca)}
+  .wrap{max-width:1200px;margin:auto;padding:14px}
+  .bar{
+    display:flex; align-items:center; justify-content:space-between;
+    color:#fff;font-weight:700;padding:12px 10px;border-radius:12px;
+    background:rgba(255,255,255,.15);backdrop-filter: blur(4px)
+  }
+  .controls{display:flex;gap:8px}
+  .ctrl{background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:10px;padding:8px 12px;cursor:pointer}
+  .ctrl:hover{background:rgba(255,255,255,.3)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:14px}
+  .card{background:var(--card);border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.08);padding:14px}
+  h3{margin:0 0 10px 0;color:var(--ink)}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+  .pill{padding:4px 10px;border-radius:999px;font-size:12px;color:#fff}
+  .pill.s4{background:var(--siaga4)} .pill.s3{background:var(--siaga3)}
+  .pill.s2{background:var(--siaga2)} .pill.s1{background:var(--siaga1)}
+  .src{color:var(--muted);font-size:12px;margin-top:6px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  select,button{font:inherit} select{padding:6px 8px;border-radius:8px;border:1px solid #cbd5e1}
+  .btn{background:#334155;color:#fff;border:0;border-radius:10px;padding:8px 14px;cursor:pointer}
+  .status{margin-left:auto;font-weight:700;border-radius:12px;background:#e2e8f0;color:#111;padding:8px 12px}
+  .status.ok{background:#dcfce7} .status.s3{background:#fef9c3} .status.s2{background:#ffedd5} .status.s1{background:#fee2e2}
+  canvas{max-height:260px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:6px 4px;border-bottom:1px solid #e5e7eb;text-align:left}
+  th{color:#111}
+  #diag{display:none;margin:10px 0;background:#0b1020;color:#7cfc89;border-radius:10px;padding:10px;max-height:400px;overflow-y:auto}
+  #diag pre{white-space:pre-wrap;margin:0;font-size:11px}
+  #updated{color:#e2e8f0;font-size:12px;margin-top:6px;text-align:center}
+  #map{width:100%;height:320px;border-radius:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="bar">
+    <span>📊 FFWS Ska 24 — Dashboard Realtime (FIXED)</span>
+    <div class="controls">
+      <button id="btnRefresh" class="ctrl" title="Refresh sekarang">⟳ Refresh</button>
+      <button id="btnDiag" class="ctrl" title="Tampilkan/sembunyikan Diagnostics">🛠️ Diagnostics</button>
+    </div>
+  </div>
+  <div id="updated">Last updated: —</div>
+
+  <!-- Diagnostics -->
+  <div id="diag"><strong>Diagnostics</strong><pre id="log"></pre></div>
+
+  <!-- Peta -->
+  <div class="card">
+    <div class="row">
+      <h3 style="margin-right:auto">🗺️ Peta Flood Area</h3>
+      <small class="src" id="srcMap" style="margin-left:auto"></small>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <div class="grid">
+    <!-- TMA -->
+    <div class="card">
+      <h3>📈 TMA Realtime (cm)</h3>
+      <canvas id="tmaChart"></canvas>
+      <div class="src" id="srcTMA"></div>
+    </div>
+
+    <!-- Rain -->
+    <div class="card">
+      <h3>🌧️ Curah Hujan Realtime (mm)</h3>
+      <canvas id="rainChart"></canvas>
+      <div class="src" id="srcRain"></div>
+    </div>
+
+    <!-- PSAT vs PGRO Scatter -->
+    <div class="card">
+      <div class="row">
+        <h3 style="margin-right:auto">🛰️ PSAT vs PGRO — Scatter</h3>
+        <label for="intMode">Intercept:</label>
+        <select id="intMode" aria-label="Mode Intercept">
+          <option value="through">Lewati nol (β₀ = 0)</option>
+          <option value="free">Bebas (OLS)</option>
+        </select>
+        <button class="btn" id="recalc" title="Hitung ulang regresi & skala sumbu">⟳ Hitung Ulang</button>
+      </div>
+      <div class="src" id="regText"></div>
+      <canvas id="scatterChart" style="margin-top:6px"></canvas>
+      <div class="src" id="srcPSAT"></div>
+    </div>
+
+    <!-- Bukaan Pintu -->
+    <div class="card">
+      <div class="row">
+        <h3>🧱 Bukaan Pintu (%) — Batang Siaga</h3>
+        <div id="gateStatus" class="status ok">Normal — 0%</div>
+      </div>
+      <canvas id="gateBar"></canvas>
+      <div class="legend">
+        <span class="pill s4">Siaga 4 (&lt;50%)</span>
+        <span class="pill s3">Siaga 3 (50–74%)</span>
+        <span class="pill s2">Siaga 2 (75–99%)</span>
+        <span class="pill s1">Siaga 1 (100%)</span>
+      </div>
+      <div class="src" id="srcGate"></div>
+    </div>
+
+    <!-- Luas & Durasi Genangan -->
+    <div class="card">
+      <h3>🗺️ Luas & Durasi Genangan</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Kecamatan</th>
+            <th>Luas (Ha)</th>
+            <th>Kedalaman (m)</th>
+            <th>Kecepatan (m/det)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="floodBody"></tbody>
+      </table>
+      <div class="src" id="srcFlood"></div>
+    </div>
+
+    <!-- Statistik Kalibrasi -->
+    <div class="card">
+      <h3>🔬 Statistik Kalibrasi</h3>
+      <table>
+        <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+        <tbody id="calibBody"></tbody>
+      </table>
+      <div class="src" id="srcCalib"></div>
+    </div>
+
+    <!-- === TIGA GRAFIK GARIS === -->
+    <div class="card">
+      <h3>📅 Psat–Pgro (Data Lapangan)</h3>
+      <canvas id="pairLine"></canvas>
+      <div class="src" id="srcPair"></div>
+    </div>
+
+    <div class="card">
+      <h3>📅 Simulasi Pgro (2020-2023)</h3>
+      <canvas id="predPgroLine"></canvas>
+      <div class="src" id="srcPredPgro"></div>
+    </div>
+
+    <div class="card">
+      <h3>📅 Prediksi Psat–Pgro (2024-2028)</h3>
+      <canvas id="predPairLine"></canvas>
+      <div class="src" id="srcPredPair"></div>
+    </div>
+
+    <!-- Overlay Evaluasi -->
+    <div class="card">
+      <div class="row">
+        <h3 style="margin-right:auto">📊 Overlay Evaluasi Pgro: Asli vs Prediksi (1 tahun terakhir)</h3>
+        <button class="btn" id="refreshOverlay">⟳ Refresh Overlay</button>
+      </div>
+      <div class="src" id="overlayStats"></div>
+      <canvas id="overlayChart" style="margin-top:6px"></canvas>
+      <div class="src" id="srcOverlay"></div>
+    </div>
+
+    <!-- Prediksi Pgro 2024 vs 2025 -->
+    <div class="card">
+      <h3>📅 Prediksi Pgro: 2024 vs 2025</h3>
+      <canvas id="predYearLine"></canvas>
+      <div class="src" id="srcPredYear"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ================== KONFIG ================== */
+const REFRESH_MS = 5*60*1000;
+let refreshTimer = null;
+const TZ = 'Asia/Jakarta';
+
+const GS = {
+  TMA   : "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=0&single=true&output=csv",
+  RAIN  : "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=1030380886&single=true&output=csv",
+  PSAT  : "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=1270888632&single=true&output=csv",
+  SIMULASI_PGRO: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=1530243719&single=true&output=csv",
+  PRE_PAIR: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=1077663454&single=true&output=csv",
+  FLOOD : "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=1123299776&single=true&output=csv",
+  CALIB : "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=41218866&single=true&output=csv",
+  LUAS_GENANGAN: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=831918136&single=true&output=csv",
+  KEDALAMAN: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=249376427&single=true&output=csv",
+  BUKAAN_PINTU: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwcjphNTfQo3jgi3BStbaK7VX1zBLBT4VYJXX5nV8u-KVGYOO4TQ0Qwhq1c3wgXz86Qhsiuvp2073w/pub?gid=831918136&single=true&output=csv"
+};
+
+/* ================== UTIL ================== */
+const $ = sel => document.querySelector(sel);
+const log = (...a)=>{ 
+  const el=$("#log"); 
+  if(el) {
+    const msg = a.join(" ");
+    console.log(msg);
+    el.textContent += msg + "\n";
+  }
+};
+const showDiag = (new URLSearchParams(location.search).get('debug')==='1') ||
+                 (localStorage.ffws_debug === '1');
+if(showDiag){ $("#diag").style.display='block' }
+window.addEventListener('keydown',e=>{
+  if(e.ctrlKey && e.shiftKey && (e.key==='D' || e.key==='d')) toggleDiag();
+});
+ $("#btnDiag").addEventListener('click', toggleDiag);
+function toggleDiag(){
+  const vis = $("#diag").style.display!=='none';
+  $("#diag").style.display = vis? 'none':'block';
+  localStorage.ffws_debug = vis? '0':'1';
+}
+
+function toNum(v){
+  if(v==null || v==='') return NaN;
+  if(typeof v==='number') return v;
+  const s = String(v).replace(/[%\s]/g,'').replace(',','.');
+  const n = Number(s);
+  return isFinite(n)? n : NaN;
+}
+
+function normalizeHeaders(rows){
+  if(!rows.length) return rows;
+  return rows.map(r=>{
+    const o={};
+    for(const k of Object.keys(r)){
+      const nk = String(k||'').replace(/^﻿/,'').trim().replace(/\s+/g,'_').replace(/,/g,'');
+      o[nk] = r[k];
+    }
+    return o;
+  });
+}
+
+async function fetchCSV(url){
+  try{
+    log(`Fetching CSV from: ${url}`);
+    const u = new URL(url);
+    u.searchParams.set('_ts', Date.now());
+    const res = await fetch(u.toString(),{cache:'no-store'});
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    const txt = await res.text();
+    log(`Response length: ${txt.length} chars, first 100: ${txt.substring(0,100)}`);
+    
+    let parsed = Papa.parse(txt.replace(/^﻿/,''),{header:true,skipEmptyLines:true});
+    
+    if(!parsed.data || parsed.data.length === 0) {
+      log('PapaParse failed, trying custom parser');
+      parsed = customCSVParser(txt);
+    }
+    
+    if(!parsed.data || parsed.data.length === 0) {
+      log('❌ No data parsed');
+      return [];
+    }
+    
+    const filtered = parsed.data.filter(row => {
+      const firstCol = Object.keys(row)[0];
+      return row[firstCol] !== firstCol;
+    });
+    
+    log(`✅ Parsed ${filtered.length} rows, Columns: ${Object.keys(filtered[0] || {}).join(', ')}`);
+    
+    return normalizeHeaders(filtered);
+  }catch(e){ 
+    log('❌ fetchCSV error:',url,e.message); 
+    return []; 
+  }
+}
+
+function customCSVParser(text) {
+  const lines = text.split('\n').filter(line => line.trim());
+  if (lines.length === 0) return { data: [] };
+  
+  const headerLine = lines[0];
+  const headers = [];
+  let inQuotes = false;
+  let currentHeader = '';
+  
+  for (let i = 0; i < headerLine.length; i++) {
+    const char = headerLine[i];
+    if (char === '"') { inQuotes = !inQuotes; }
+    else if (char === ',' && !inQuotes) { headers.push(currentHeader.trim()); currentHeader = ''; }
+    else { currentHeader += char; }
+  }
+  headers.push(currentHeader.trim());
+  
+  const data = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const values = [];
+    inQuotes = false;
+    let currentValue = '';
+    
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j];
+      if (char === '"') { inQuotes = !inQuotes; }
+      else if (char === ',' && !inQuotes) { values.push(currentValue.trim()); currentValue = ''; }
+      else { currentValue += char; }
+    }
+    values.push(currentValue.trim());
+    
+    const row = {};
+    for (let j = 0; j < headers.length && j < values.length; j++) {
+      row[headers[j]] = values[j];
+    }
+    data.push(row);
+  }
+  
+  return { data };
+}
+
+function fmtDate(d){
+  return new Intl.DateTimeFormat('en-GB',{ timeZone: TZ, day:'2-digit',month:'short',year:'2-digit'}).format(d);
+}
+function isoFromDate(d){
+  return new Intl.DateTimeFormat('en-CA',{ timeZone: TZ, year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
+}
+function setUpdated(){
+  const t = new Date();
+  $("#updated").textContent = `Last updated: ${t.toLocaleString('id-ID',{ timeZone: TZ })} (${TZ})`;
+}
+function parseDate(d){ 
+  if(!d) return null;
+  const t = new Date(d); 
+  if(!isNaN(t)) return t; 
+  return null;
+}
+
+function safeLabel(row, idx){
+  const candidates = ['Tanggal_Akhir','Tanggal_Awal','Time','Datetime'];
+  for(const k of candidates) {
+    if(row[k]) {
+      const d = parseDate(row[k]);
+      if(d) return fmtDate(d);
+    }
+  }
+  return `Idx ${idx+1}`;
+}
+
+function isoFromRow(row){
+  const candidates = ['Tanggal_Akhir','Tanggal_Awal','Time'];
+  for(const k of candidates) {
+    if(row[k]) {
+      const d = parseDate(row[k]);
+      if(d) return isoFromDate(d);
+    }
+  }
+  return null;
+}
+
+/* ================== CHART HELPERS ================== */
+function lineChart(ctx, labels, series, colors){
+  const base = {fill:false,tension:.35,cubicInterpolationMode:'monotone',pointRadius:2};
+  const datasets = series.map((s,i)=>({...base,label:s.label,data:s.data,borderColor:colors[i]}));
+  return new Chart(ctx,{type:'line',data:{labels,datasets}, options:{responsive:true, maintainAspectRatio:false}});
+}
+
+/* ================== REGRESI ================== */
+function regress(xArr, yArr, mode='through'){
+  const x = [], y=[];
+  for(let i=0;i<xArr.length;i++){
+    const xi = toNum(xArr[i]), yi = toNum(yArr[i]);
+    if(isFinite(xi)&&isFinite(yi)){ x.push(xi); y.push(yi); }
+  }
+  const n = x.length;
+  if(n<2) return {b0:0,b1:0,n:0,R2:0,RMSE:NaN};
+  const sum = (a)=>a.reduce((p,c)=>p+c,0);
+  const mean = (a)=> sum(a)/a.length;
+
+  let b0, b1;
+  if(mode==='through'){ 
+    const num = sum(x.map((xi,i)=> xi*y[i])); 
+    const den = sum(x.map(xi=> xi*xi)) || 1e-9; 
+    b0 = 0; 
+    b1 = num/den; 
+  } else{
+    const xm=mean(x), ym=mean(y);
+    let num=0, den=0;
+    for(let i=0;i<n;i++){ num += (x[i]-xm)*(y[i]-ym); den += (x[i]-xm)**2; }
+    b1 = den===0? 0 : num/den;
+    b0 = ym - b1*xm;
+  }
+  const yhat = x.map(v=> b0 + b1*v);
+  const mse = y.reduce((a,yi,i)=> a + (yi - yhat[i])**2, 0)/n;
+  const rmse = Math.sqrt(mse);
+  const ymean = y.reduce((a,b)=>a+b,0)/n;
+  const sst = y.reduce((acc,yi)=> acc + (yi - ymean)**2, 0) || 1e-9;
+  const ssr = y.reduce((acc,yi,i)=> acc + (yhat[i] - ymean)**2, 0);
+  const R2 = ssr / sst;
+  return {b0,b1,n,R2,RMSE:rmse};
+}
+
+function mae(arr){ 
+  const n=arr.length; 
+  if(n===0) return NaN; 
+  return arr.reduce((s,v)=>s+Math.abs(v),0)/n; 
+}
+
+function mape(actual, error){ 
+  const vals=[]; 
+  for(let i=0;i<actual.length;i++){ 
+    const a=actual[i]; 
+    const e=error[i]; 
+    if(isFinite(a)&&Math.abs(a)>1e-9&&isFinite(e)) vals.push(Math.abs(e)/Math.abs(a)); 
+  } 
+  if(!vals.length) return NaN; 
+  return 100*vals.reduce((s,v)=>s+v,0)/vals.length; 
+}
+
+/* ================== RENDER: HEC-RAS (BARU) ================== */
+async function loadHecRasResults() {
+  // !!! GANTI BAGIAN SERVER DARI URL INI !!!
+  const geojsonUrl = 'https://your-server.com/data/genangan_bjn.geojson';
+
+  try {
+    log(`🔄 Loading HEC-RAS results from: ${geojsonUrl}`);
+    const response = await fetch(geojsonUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const floodData = await response.json();
+
+    if (window.hecRasLayer) {
+      map.removeLayer(window.hecRasLayer);
+    }
+
+    window.hecRasLayer = L.geoJSON(floodData, {
+      style: function(feature) {
+        // Sesuaikan 'Depth' dengan nama kolom di file GeoJSON Anda
+        const depth = toNum(feature.properties.Depth || feature.properties.depth || 0); 
+        let color = '#4285F4';
+        let opacity = 0.5;
+
+        if (depth > 1.5) { color = '#B00020'; opacity = 0.7; }
+        else if (depth > 0.5) { color = '#F9AB00'; opacity = 0.6; }
+        
+        return {
+          fillColor: color, weight: 1, opacity: 1, color: 'white', fillOpacity: opacity
+        };
+      },
+      onEachFeature: function (feature, layer) {
+        if (feature.properties) {
+          // Sesuaikan ini dengan properti di GeoJSON Anda
+          const depth = feature.properties.Depth || feature.properties.depth;
+          const velocity = feature.properties.Velocity || feature.properties.velocity;
+          const popupContent = `
+            <b>Informasi Genangan HEC-RAS</b><br>
+            Kedalaman: ${depth ? toNum(depth).toFixed(2) + ' m' : 'N/A'}<br>
+            Kecepatan: ${velocity ? toNum(velocity).toFixed(2) + ' m/s' : 'N/A'}
+          `;
+          layer.bindPopup(popupContent);
+        }
+      }
+    }).addTo(map);
+
+    log('✅ HEC-RAS results loaded and added to map.');
+
+  } catch (error) {
+    log('❌ Error loading HEC-RAS results:', error);
+  }
+}
+
+/* ================== RENDER: PETA ================== */
+let map, markers;
+async function renderMap(){
+  if(!map){
+    map = L.map('map',{zoomControl:true}).setView([-7.566,110.825], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+    markers = L.layerGroup().addTo(map);
+  }
+  markers.clearLayers();
+
+  const rows = await fetchCSV(GS.FLOOD);
+  $("#srcMap").textContent = `Sumber: FloodArea_coord (baris: ${rows.length})`;
+  if(!rows.length) { log('⚠️ Map: no data'); return; }
+
+  const grouped = {};
+  rows.forEach(row => {
+    const kec = row.Kecamatan || 'Unknown';
+    if (!grouped[kec]) {
+      grouped[kec] = { lat: toNum(row.Lat), lon: toNum(row.Lon), luas: [], kedalaman: [], kecepatan: [], kala: [] };
+    }
+    grouped[kec].luas.push(toNum(row.Luas_Ha || 0));
+    grouped[kec].kedalaman.push(toNum(row.Kedalaman_m || 0));
+    grouped[kec].kecepatan.push(toNum(row.Kecepatan_m_per_det || 0));
+    grouped[kec].kala.push(row.Kala_Ulang || '-');
+  });
+
+  Object.keys(grouped).forEach(kec => {
+    const g = grouped[kec];
+    const lat = g.lat; const lon = g.lon;
+    if(!isFinite(lat)||!isFinite(lon)) { log(`⚠️ Invalid coordinates for ${kec}`); return; }
+    
+    const avgLuas = g.luas.reduce((a,b)=>a+b,0) / g.luas.length;
+    const avgKedalaman = g.kedalaman.reduce((a,b)=>a+b,0) / g.kedalaman.length;
+    const avgKecepatan = g.kecepatan.reduce((a,b)=>a+b,0) / g.kecepatan.length;
+    const rad = Math.max(80, Math.min(400, avgLuas*1.2));
+    
+    let statusLabel = 'Siaga 4 (Aman)'; let color = '#22c55e';
+    if(avgKedalaman > 1){ statusLabel = 'Siaga 1 (Kritis)'; color = '#dc2626'; }
+    else if(avgKedalaman > 0.7){ statusLabel = 'Siaga 2 (Siaga)'; color = '#f97316'; }
+    else if(avgKedalaman > 0.3){ statusLabel = 'Siaga 3 (Waspada)'; color = '#eab308'; }
+    
+    const m = L.circleMarker([lat,lon],{ radius: Math.sqrt(rad)/2.5, color: color, fillColor: color, fillOpacity: 0.4, weight: 2});
+    
+    let popupHTML = `
+      <div style="min-width:220px;font-family:system-ui;font-size:13px">
+        <h4 style="margin:0 0 8px 0;color:#111;border-bottom:2px solid ${color};padding-bottom:4px">${kec}</h4>
+        <table style="width:100%;margin-bottom:8px">
+          <tr><td><strong>Status FFWS:</strong></td><td style="text-align:right">${statusLabel}</td></tr>
+          <tr><td><strong>Rata-rata Luas:</strong></td><td style="text-align:right">${avgLuas.toFixed(2)} Ha</td></tr>
+          <tr><td><strong>Rata-rata Kedalaman:</strong></td><td style="text-align:right">${avgKedalaman.toFixed(2)} m</td></tr>
+          <tr><td><strong>Rata-rata Kecepatan:</strong></td><td style="text-align:right">${avgKecepatan.toFixed(2)} m/det</td></tr>
+        </table>
+    `;
+    if(g.luas.length > 1) { /* ... (detail popup code) ... */ }
+    popupHTML += `</div>`;
+    m.bindPopup(popupHTML, { maxWidth: 300 });
+    markers.addLayer(m);
+  });
+  
+  // Panggil fungsi baru untuk memuat HEC-RAS
+  await loadHecRasResults();
+  
+  log(`✅ Map rendered: ${Object.keys(grouped).length} markers`);
+}
+
+/* ================== RENDER: TMA & Rain ================== */
+let tmaChart, rainChart;
+async function renderTMA(){
+  const rows = await fetchCSV(GS.TMA);
+  if(!rows.length) { log('⚠️ TMA: No data'); return; }
+  const labels = rows.map(r=> r.Time || '');
+  const data = rows.map(r=> toNum(r.TMA_cm));
+  if(tmaChart) tmaChart.destroy();
+  tmaChart = lineChart($("#tmaChart"), labels, [{label:'TMA (cm)', data}], ['#2563eb']);
+  $("#srcTMA").textContent = `Sumber: TMA_Realtime (baris: ${rows.length})`;
+  log(`✅ TMA rendered: ${rows.length} rows`);
+}
+async function renderRain(){
+  const rows = await fetchCSV(GS.RAIN);
+  if(!rows.length) { log('⚠️ Rain: No data'); $("#srcRain").textContent = 'Data curah hujan tidak tersedia'; return; }
+  const labels = rows.map(r=> r.Time || '');
+  const data = rows.map(r=> toNum(r.Rainfall_mm));
+  if(rainChart) rainChart.destroy();
+  rainChart = lineChart($("#rainChart"), labels, [{label:'Hujan (mm)', data}], ['#10b981']);
+  $("#srcRain").textContent = `Sumber: Rainfall (baris: ${rows.length})`;
+  log(`✅ Rain rendered: ${rows.length} rows`);
+}
+
+/* ================== RENDER: Scatter PSAT vs PGRO ================== */
+let psatRows = [], scatter;
+async function renderScatter(){
+  if(!psatRows.length) psatRows = await fetchCSV(GS.PSAT);
+  if(!psatRows.length) { log('⚠️ Scatter: no data'); return; }
+  const X = psatRows.map(r=> toNum(r.Psat));
+  const Y = psatRows.map(r=> toNum(r.Pgro));
+  const pts = X.map((x,i)=>({x, y:Y[i]})).filter(p => isFinite(p.x) && isFinite(p.y));
+  const mode = $("#intMode").value;
+  const model = regress(X,Y,mode);
+  const xMaxData = Math.max(0, ...X.filter(isFinite));
+  const pad = xMaxData>0 ? xMaxData*0.05 : 1;
+  const xRight = xMaxData + pad;
+  const xMin = Math.min(...X.filter(isFinite));
+  const trend = (mode==='through') ? [{x:0,y:0},{x:xRight,y:model.b1*xRight}] : [{x:xMin,y:model.b0+model.b1*xMin},{x:xRight,y:model.b0+model.b1*xRight}];
+  if(scatter) scatter.destroy();
+  scatter = new Chart($("#scatterChart"), {
+    type:'scatter', data:{ datasets:[ {label:'PSAT vs PGRO', data:pts, backgroundColor:'#f59e0b', borderColor:'#f59e0b'}, {label:'Trend', type:'line', data:trend, borderColor:'#64748b', borderDash:[6,6], fill:false, tension:0} ]},
+    options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{type:'linear', title:{display:true,text:'Psat (mm)'}, beginAtZero:(mode==='through'), min:(mode==='through')?0:undefined}, y:{title:{display:true,text:'Pgro (mm)'}, beginAtZero:(mode==='through'), min:(mode==='through')?0:undefined} } }
+  });
+  const fmt=v=>(Math.round(v*100)/100).toFixed(2);
+  $("#regText").textContent = (mode==='through') ? `Mode: Lewati nol (β₀=0) · y = ${fmt(model.b1)}x · n=${model.n} · R²=${fmt(model.R2)} · RMSE=${fmt(model.RMSE)}` : `Mode: Bebas (OLS) · y = ${fmt(model.b1)}x + ${fmt(model.b0)} · n=${model.n} · R²=${fmt(model.R2)} · RMSE=${fmt(model.RMSE)}`;
+  $("#srcPSAT").textContent = `Sumber: Psat_Pgro (baris: ${psatRows.length})`;
+  log(`✅ Scatter rendered: ${pts.length} points, R²=${fmt(model.R2)}`);
+}
+ $("#recalc").addEventListener('click', async ()=>{ psatRows=[]; await renderScatter(); });
+
+/* ================== RENDER: Bukaan Pintu ================== */
+let gateChart;
+function gateColor(v){ if(v>=100) return '#dc2626'; if(v>=75) return '#f97316'; if(v>=50) return '#eab308'; return '#22c55e'; }
+function setGateStatus(pct){
+  const el=$("#gateStatus"); const p = Math.round(pct||0);
+  if(p>=100){ el.textContent=`Siaga 1 — ${p}%`; el.className='status s1'; }
+  else if(p>=75){ el.textContent=`Siaga 2 — ${p}%`; el.className='status s2'; }
+  else if(p>=50){ el.textContent=`Siaga 3 — ${p}%`; el.className='status s3'; }
+  else { el.textContent=`Normal — ${p}%`; el.className='status ok'; }
+}
+async function renderGate(){
+  const rows = await fetchCSV(GS.BUKAAN_PINTU);
+  if(!rows.length) { log('⚠️ Gate: No data'); $("#srcGate").textContent = 'Data bukaan pintu tidak tersedia'; return; }
+  const labels = rows.map(r=> r.Time || '');
+  const open = rows.map(r=> toNum(r['Bukaan_Pintu_(%)']));
+  const colors = open.map(v=> gateColor(v));
+  const last = Math.round(open[open.length-1] ?? 0);
+  setGateStatus(last);
+  if(gateChart) gateChart.destroy();
+  gateChart = new Chart($("#gateBar"),{ type:'bar', data:{ labels, datasets:[{label:'Bukaan (%)', data:open, backgroundColor:colors, borderColor:'#334155'}] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, max:100, title:{display:true,text:'Bukaan (%)'}} } } });
+  $("#srcGate").textContent = `Sumber: Bukaan_Pintu (baris: ${rows.length})`;
+  log(`✅ Gate rendered: ${rows.length} bars`);
+}
+
+/* ================== RENDER: Flood & Calib ================== */
+async function renderFlood(){
+  const luasRows = await fetchCSV(GS.LUAS_GENANGAN);
+  const kedalamanRows = await fetchCSV(GS.KEDALAMAN);
+  if(!luasRows.length) { log('⚠️ Flood: No data'); $("#srcFlood").textContent = 'Data genangan tidak tersedia'; return; }
+  const kecamatanMap = [ { name: 'Pasar Kliwon', luasCol: 'Pasar_Kliwon_(Ha)', kedalamanCol: 'Pasar_Kliwon_H(m)' }, { name: 'Jebres', luasCol: 'Jebres_(Ha)', kedalamanCol: 'Jebres_H(m)' }, { name: 'Laweyan', luasCol: 'Laweyan_(Ha)', kedalamanCol: 'Laweyan_H(m)' }, { name: 'Banjarsari', luasCol: 'Banjarsari_(Ha)', kedalamanCol: 'Banjarsari_H(m)' }, { name: 'Serengan', luasCol: 'Serengan_(Ha)', kedalamanCol: 'Serengan_H(m)' } ];
+  const latestLuas = luasRows[luasRows.length - 1] || {};
+  const latestKedalaman = kedalamanRows.length > 0 ? kedalamanRows[kedalamanRows.length - 1] : {};
+  const status = latestLuas['Status'] || 'Normal';
+  const tbody = $("#floodBody"); let html = '';
+  kecamatanMap.forEach(kec => {
+    const luasVal = toNum(latestLuas[kec.luasCol]) || 0;
+    const kedalamanVal = toNum(latestKedalaman[kec.kedalamanCol]) || 0;
+    let statusLabel = 'Siaga 4'; let statusClass = 's4';
+    if(status === 'BANJIR'){ statusLabel = 'Siaga 1'; statusClass = 's1'; }
+    else if(kedalamanVal > 1){ statusLabel = 'Siaga 1'; statusClass = 's1'; }
+    else if(kedalamanVal > 0.7){ statusLabel = 'Siaga 2'; statusClass = 's2'; }
+    else if(kedalamanVal > 0.3){ statusLabel = 'Siaga 3'; statusClass = 's3'; }
+    html += `<tr><td><strong>${kec.name}</strong></td><td>${luasVal.toFixed(2)}</td><td>${kedalamanVal.toFixed(2)}</td><td>-</td><td><span class="pill ${statusClass}">${statusLabel}</span></td></tr>`;
+  });
+  tbody.innerHTML = html;
+  $("#srcFlood").textContent = `Sumber: Luas_Genangan + Kedalaman, Status="${status}"`;
+  log(`✅ Flood table rendered: 5 kecamatan`);
+}
+async function renderCalib(){
+  const rows = await fetchCSV(GS.CALIB);
+  if(!rows.length) { log('⚠️ Calib: no data'); return; }
+  $("#calibBody").innerHTML = rows.map(r=> `<tr><td>${r.Metric || ''}</td><td>${r.Value || ''}</td></tr>`).join('');
+  $("#srcCalib").textContent = `Sumber: CalibStats (baris: ${rows.length})`;
+  log(`✅ Calib rendered: ${rows.length} metrics`);
+}
+
+/* ================== GARIS: Psat_Pgro & Prediksi ================== */
+let pairLine, predPgroLine, predPairLine, predYearLine;
+async function renderPairLine(){ const rows = await fetchCSV(GS.PSAT); if(!rows.length) { log('⚠️ PairLine: no data'); return; } const labels = rows.map((r,i)=> safeLabel(r,i)); const psat = rows.map(r=> toNum(r.Psat)); const pgro = rows.map(r=> toNum(r.Pgro)); if(pairLine) pairLine.destroy(); pairLine = lineChart($("#pairLine"), labels, [{label:'Psat (mm)', data:psat}, {label:'Pgro (mm)', data:pgro}], ['#0ea5e9','#ef4444']); $("#srcPair").textContent = `Sumber: Psat_Pgro (baris: ${rows.length})`; log(`✅ PairLine rendered: ${rows.length} points`); }
+async function renderPredPgroLine(){ const rows = await fetchCSV(GS.SIMULASI_PGRO); if(!rows.length) { log('⚠️ SimulasiPgro: no data'); return; } const labels = rows.map((r,i)=> safeLabel(r,i)); const psat = rows.map(r=> toNum(r.P_sat)); const pgro = rows.map(r=> toNum(r['P-gro'])); if(predPgroLine) predPgroLine.destroy(); predPgroLine = lineChart($("#predPgroLine"), labels, [{label:'P_sat (mm)', data:psat}, {label:'P-gro (mm)', data:pgro}], ['#0ea5e9','#22c55e']); $("#srcPredPgro").textContent = `Sumber: Simulasi_Pgro (baris: ${rows.length})`; log(`✅ SimulasiPgro rendered: ${rows.length} points`); }
+async function renderPredPairLine(){ const rows = await fetchCSV(GS.PRE_PAIR); if(!rows.length) { log('⚠️ PredPair: no data'); return; } const labels = rows.map((r,i)=> safeLabel(r,i)); const psat = rows.map(r=> toNum(r.P_sat)); const pgro = rows.map(r=> toNum(r.P_gro)); if(predPairLine) predPairLine.destroy(); predPairLine = lineChart($("#predPairLine"), labels, [{label:'P_sat (mm)', data:psat}, {label:'P_gro (mm)', data:pgro}], ['#a855f7','#f59e0b']); $("#srcPredPair").textContent = `Sumber: Prediksi_Psat_Pgro (baris: ${rows.length})`; log(`✅ PredPair rendered: ${rows.length} points`); }
+
+/* ================== RENDER: Prediksi Pgro 2024 vs 2025 ================== */
+async function renderPredYearLine(){
+  const rows = await fetchCSV(GS.PRE_PAIR);
+  if(!rows.length){ log('⚠️ PredYear: no data'); $("#srcPredYear").textContent='Prediksi_Psat_Pgro kosong.'; return; }
+  let data2024 = []; let data2025 = [];
+  rows.forEach((row, idx) => {
+    let year = null;
+    if(row.Tahun) { year = parseInt(row.Tahun); } else if(row.Tanggal_Akhir) { const d = parseDate(row.Tanggal_Akhir); if(d) year = d.getFullYear(); }
+    const pgroVal = toNum(row.P_gro);
+    if(year === 2024 && isFinite(pgroVal)) { data2024.push({ label: safeLabel(row, idx), value: pgroVal, row: row }); } else if(year === 2025 && isFinite(pgroVal)) { data2025.push({ label: safeLabel(row, idx), value: pgroVal, row: row }); }
+  });
+  log(`PredYear: 2024=${data2024.length}, 2025=${data2025.length}`);
+  if(data2024.length === 0 && data2025.length === 0) { $("#srcPredYear").textContent = 'Tidak ada data prediksi untuk tahun 2024 dan 2025.'; return; }
+  data2024 = data2024.slice(0, 24); data2025 = data2025.slice(0, 24);
+  const maxLen = Math.max(data2024.length, data2025.length); const labels = [];
+  for(let i = 0; i < maxLen; i++) { if(data2024[i]) { labels.push(data2024[i].label); } else if(data2025[i]) { labels.push(data2025[i].label); } else { labels.push(`Periode ${i+1}`); } }
+  const values2024 = data2024.map(d => d.value); const values2025 = data2025.map(d => d.value);
+  while(values2024.length < maxLen) values2024.push(null); while(values2025.length < maxLen) values2025.push(null);
+  if(predYearLine) predYearLine.destroy();
+  predYearLine = lineChart($("#predYearLine"), labels, [ {label:'P_gro Prediksi 2024', data:values2024}, {label:'P_gro Prediksi 2025', data:values2025} ], ['#3b82f6', '#10b981'] );
+  $("#srcPredYear").textContent = `Sumber: Prediksi_Psat_Pgro — Perbandingan P_gro(prediksi) 2024 (${data2024.length} periode) vs 2025 (${data2025.length} periode)`;
+  log(`✅ PredYear rendered`);
+}
+
+/* ================== OVERLAY ================== */
+let overlayChart;
+async function renderOverlay(){
+  const act = await fetchCSV(GS.PSAT);
+  const prePair = await fetchCSV(GS.PRE_PAIR);
+  if(!act.length || !prePair.length){ log('⚠️ Overlay: insufficient data'); $("#srcOverlay").textContent='Overlay: data belum lengkap.'; return; }
+  const todayIso = isoFromDate(new Date());
+  const P = prePair.map(r=> ({ iso: isoFromRow(r), p: toNum(r.P_gro) })).filter(o=> o.iso && isFinite(o.p)).sort((a,b)=> a.iso.localeCompare(b.iso)).filter(o=> o.iso <= todayIso).slice(-24);
+  const A = act.map(r=> ({ iso: isoFromRow(r), a: toNum(r.Pgro) })).filter(o=> o.iso && isFinite(o.a));
+  const mapA = new Map(A.map(o=>[o.iso,o.a]));
+  const labels = P.map(o=> fmtDate(parseDate(o.iso)));
+  const yPred = P.map(o=> o.p);
+  const yAct = P.map(o=> mapA.get(o.iso));
+  const err = yAct.map((v,i)=> (isFinite(v)&&isFinite(yPred[i])) ? (yPred[i]-v) : NaN);
+  const MAE = mae(err); const MAPE = mape(yAct, err);
+  const n = labels.filter((_,i)=> isFinite(yAct[i])&&isFinite(yPred[i])).length;
+  const fmt=v=> (isFinite(v)? (Math.round(v*100)/100).toFixed(2) : '—');
+  if(overlayChart) overlayChart.destroy();
+  overlayChart = new Chart($("#overlayChart"), { type:'line', data:{ labels, datasets:[{label:'Pgro (asli)', data:yAct, borderColor:'#ef4444', fill:false, tension:.35, pointRadius:2},{label:'Pgro (prediksi)', data:yPred, borderColor:'#22c55e', fill:false, tension:.35, pointRadius:2}]}, options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{title:{display:true,text:'Pgro (mm)'}} } } });
+  $("#overlayStats").textContent = `Window: 24 periode · n=${n} · MAE=${fmt(MAE)} mm · MAPE=${fmt(MAPE)}%`;
+  $("#srcOverlay").textContent = `Sumber: Psat_Pgro × Prediksi_Psat_Pgro`;
+  log(`✅ Overlay rendered: n=${n}, MAE=${fmt(MAE)}, MAPE=${fmt(MAPE)}`);
+}
+ $("#refreshOverlay").addEventListener('click', renderOverlay);
+
+/* ================== BOOT & REFRESH ================== */
+async function renderAll(){
+  log('🔄 Starting renderAll...');
+  await Promise.all([ renderMap(), renderTMA(), renderRain(), renderScatter(), renderGate(), renderFlood(), renderCalib(), renderPairLine(), renderPredPgroLine(), renderPredPairLine() ]);
+  await renderOverlay();
+  await renderPredYearLine();
+  setUpdated();
+  log('✅ renderAll complete');
+}
+function startAutoRefresh(){ if(refreshTimer) clearInterval(refreshTimer); refreshTimer = setInterval(renderAll, REFRESH_MS); }
+ $("#btnRefresh").addEventListener('click', renderAll);
+(async function init(){ log('🚀 Initializing dashboard...'); await renderAll(); startAutoRefresh(); })();
+window.addEventListener('error', (e)=>{ log('❌ JS Error:', e.message, '@', (e.filename||'').split('/').pop()+':'+e.lineno); });
+</script>
+</body>
+</html>
